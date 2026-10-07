@@ -1,0 +1,67 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Unzip project if needed
+        run: |
+          if [ ! -f settings.gradle ] && [ ! -f settings.gradle.kts ]; then
+            ZIP=$(find . -maxdepth 2 -name "*.zip" -not -path "./.git/*" | head -n 1)
+            if [ -n "$ZIP" ]; then
+              echo "Found zip: $ZIP — extracting..."
+              unzip -o "$ZIP" -d .
+            else
+              echo "No settings.gradle and no zip found"
+              ls -la
+              exit 1
+            fi
+          fi
+          echo "After extract:"
+          ls -la
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.7
+
+      - name: Find project folder
+        id: find
+        run: |
+          FILE=$(find . -name settings.gradle -not -path './.git/*' | head -n 1)
+          if [ -z "$FILE" ]; then
+            FILE=$(find . -name settings.gradle.kts -not -path './.git/*' | head -n 1)
+          fi
+          if [ -z "$FILE" ]; then
+            echo "settings.gradle not found"
+            find . -maxdepth 3 -type f | head -50
+            exit 1
+          fi
+          DIR=$(dirname "$FILE")
+          echo "Project folder: $DIR"
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Build debug APK
+        working-directory: ${{ steps.find.outputs.dir }}
+        run: gradle assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: "**/build/outputs/apk/debug/*.apk"
+          if-no-files-found: error
